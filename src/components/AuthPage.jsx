@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Music, Lock, ArrowRight, KeyRound, CheckCircle2, X } from 'lucide-react';
-import { loginAdmin, resetAdminPassword } from '../api/client';
+import { Music, Lock, ArrowRight, KeyRound, CheckCircle2, X, MailCheck, ShieldCheck } from 'lucide-react';
+import { loginAdmin, requestResetOTP, verifyResetOTP, resetAdminPassword } from '../api/client';
 
 export default function AuthPage({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -9,10 +9,11 @@ export default function AuthPage({ onLogin }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Password Reset Modal State
+  // Password Reset Modal State (3 Steps: 1-Email, 2-OTP Code, 3-New Password)
   const [isResetOpen, setIsResetOpen] = useState(false);
   const [resetStep, setResetStep] = useState(1);
   const [resetEmail, setResetEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
@@ -38,11 +39,35 @@ export default function AuthPage({ onLogin }) {
 
     if (resetStep === 1) {
       if (!resetEmail) {
-        setErrorMessage('Please enter your authorized email address.');
+        setErrorMessage('Please enter your email address.');
         return;
       }
-      setResetStep(2);
+      setLoading(true);
+      try {
+        await requestResetOTP(resetEmail);
+        setResetStep(2);
+        setErrorMessage('');
+      } catch (err) {
+        setErrorMessage(err.message || 'Failed to send verification code.');
+      } finally {
+        setLoading(false);
+      }
     } else if (resetStep === 2) {
+      if (!otpCode || otpCode.trim().length !== 6) {
+        setErrorMessage('Please enter the 6-digit verification code sent to your email.');
+        return;
+      }
+      setLoading(true);
+      try {
+        await verifyResetOTP(resetEmail, otpCode.trim());
+        setResetStep(3);
+        setErrorMessage('');
+      } catch (err) {
+        setErrorMessage(err.message || 'Invalid or expired verification code.');
+      } finally {
+        setLoading(false);
+      }
+    } else if (resetStep === 3) {
       if (newPassword.length < 6) {
         setErrorMessage('Password must be at least 6 characters long.');
         return;
@@ -54,14 +79,15 @@ export default function AuthPage({ onLogin }) {
 
       setLoading(true);
       try {
-        await resetAdminPassword(resetEmail, newPassword);
-        setResetSuccess('Password updated successfully in database! Log in with your new password.');
+        await resetAdminPassword(resetEmail, newPassword, otpCode.trim());
+        setResetSuccess('Password updated successfully! You can now log in with your new password.');
         setTimeout(() => {
           setIsResetOpen(false);
           setResetStep(1);
           setResetSuccess('');
           setPassword(newPassword);
-        }, 2000);
+          setEmail(resetEmail);
+        }, 2500);
       } catch (err) {
         setErrorMessage(err.message || 'Password reset failed.');
       } finally {
@@ -107,7 +133,7 @@ export default function AuthPage({ onLogin }) {
               Sign In to PayTrack
             </h2>
             <p className="text-xs text-gray-400 max-w-xs mx-auto">
-              Enter your authorized admin email address and password to access database subscriber records.
+              Enter your authorized admin email address and password to access subscriber database records.
             </p>
           </div>
 
@@ -146,6 +172,7 @@ export default function AuthPage({ onLogin }) {
                     setResetStep(1);
                     setErrorMessage('');
                     setResetEmail('');
+                    setOtpCode('');
                   }}
                   className="text-[10px] text-rose-400 hover:underline font-bold"
                 >
@@ -187,7 +214,7 @@ export default function AuthPage({ onLogin }) {
         </div>
       </main>
 
-      {/* Password Reset Modal */}
+      {/* Password Reset Modal with 6-Digit OTP Email Verification */}
       {isResetOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#12121a] w-full max-w-md rounded-2xl border border-gray-800 p-6 shadow-2xl space-y-4 text-xs">
@@ -212,18 +239,20 @@ export default function AuthPage({ onLogin }) {
             )}
 
             {resetSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4" />
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{resetSuccess}</span>
               </div>
             )}
 
             {!resetSuccess && (
               <form onSubmit={handlePasswordResetSubmit} className="space-y-4">
+                
+                {/* Step 1: Request 6-Digit Code */}
                 {resetStep === 1 && (
                   <div>
                     <p className="text-gray-400 mb-3">
-                      Enter your authorized admin email address to verify your account and reset your password.
+                      Enter your authorized admin email address. We will dispatch a <strong>6-digit verification code</strong> directly to your email inbox.
                     </p>
                     <label className="text-gray-400 block mb-1 font-semibold">Email Address</label>
                     <input
@@ -237,11 +266,41 @@ export default function AuthPage({ onLogin }) {
                   </div>
                 )}
 
+                {/* Step 2: Input 6-Digit Verification Code */}
                 {resetStep === 2 && (
                   <div className="space-y-3">
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center space-x-2">
+                      <MailCheck className="w-4 h-4 shrink-0" />
+                      <span>Verification code sent to <strong>{resetEmail}</strong></span>
+                    </div>
+
                     <p className="text-gray-400">
-                      Email verified for <span className="text-white font-bold">{resetEmail}</span>. Enter your new password below.
+                      Check your email inbox for a <strong>6-digit OTP security code</strong> and enter it below:
                     </p>
+
+                    <div>
+                      <label className="text-gray-400 block mb-1 font-semibold">6-Digit Verification Code</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        className="w-full px-3.5 py-2.5 rounded-xl glass-input focus:outline-none font-mono font-bold text-center text-lg tracking-widest text-rose-400"
+                        placeholder="••••••"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Enter New Password */}
+                {resetStep === 3 && (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center space-x-2">
+                      <ShieldCheck className="w-4 h-4 shrink-0" />
+                      <span>Email Verified Successfully for <strong>{resetEmail}</strong></span>
+                    </div>
+
                     <div>
                       <label className="text-gray-400 block mb-1 font-semibold">New Password</label>
                       <input
@@ -281,7 +340,14 @@ export default function AuthPage({ onLogin }) {
                     disabled={loading}
                     className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition-all disabled:opacity-50"
                   >
-                    {loading ? 'Processing...' : resetStep === 1 ? 'Verify Email' : 'Save New Password'}
+                    {loading 
+                      ? 'Sending...' 
+                      : resetStep === 1 
+                      ? 'Send Verification Code' 
+                      : resetStep === 2 
+                      ? 'Verify Code' 
+                      : 'Save New Password'
+                    }
                   </button>
                 </div>
               </form>

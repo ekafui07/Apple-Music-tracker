@@ -5,6 +5,13 @@ node_modules/
 dist/
 dist-ssr/
 
+# Deployment Scripts & Local Secret Keys
+deploy-aws.sh
+.env
+.env.local
+.env.production
+.env.staging
+
 # Local databases & serverless artifacts
 database.sqlite
 .serverless/
@@ -15,12 +22,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Environment variables
-.env
-.env.local
-.env.production
-.env.staging
 
 # OS metadata
 .DS_Store

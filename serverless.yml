@@ -12,6 +12,7 @@ provider:
   environment:
     NODE_ENV: production
     USE_DYNAMODB: 'true'
+    RESEND_API_KEY: ${env:RESEND_API_KEY}
     DYNAMODB_CUSTOMERS_TABLE: ${self:service}-customers-${self:provider.stage}
     DYNAMODB_ADMINS_TABLE: ${self:service}-admins-${self:provider.stage}
     DYNAMODB_HISTORY_TABLE: ${self:service}-history-${self:provider.stage}

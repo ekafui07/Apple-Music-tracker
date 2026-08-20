@@ -16,11 +16,39 @@ export async function loginAdmin(email, password) {
   return data;
 }
 
-export async function resetAdminPassword(email, newPassword) {
+export async function requestResetOTP(email) {
+  const res = await fetch(`${API_BASE}/api/auth/request-reset-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to send verification code');
+  }
+  return data;
+}
+
+export async function verifyResetOTP(email, code) {
+  const res = await fetch(`${API_BASE}/api/auth/verify-reset-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Invalid verification code');
+  }
+  return data;
+}
+
+export async function resetAdminPassword(email, newPassword, code) {
   const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, newPassword })
+    body: JSON.stringify({ email, newPassword, code })
   });
 
   const data = await res.json();
