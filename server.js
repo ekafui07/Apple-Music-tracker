@@ -48,6 +48,7 @@ if (!isDynamoDB) {
       dueDate TEXT NOT NULL,
       status TEXT NOT NULL,
       paymentMethod TEXT NOT NULL DEFAULT 'Mobile Money',
+      autoReminders INTEGER DEFAULT 1,
       notes TEXT,
       createdAt TEXT NOT NULL
     );
@@ -75,6 +76,100 @@ if (!isDynamoDB) {
 }
 
 const AUTHORIZED_EMAILS = ['edwingligah124@gmail.com', 'gligahedwin@icloud.com'];
+
+// ----------------------------------------------------
+// AUTOMATED EMAIL CRON SCHEDULER ENGINE
+// ----------------------------------------------------
+export async function runAutomatedEmailCron() {
+  console.log('[Automated Email Scheduler] Checking subscriber due dates...');
+  let subscribers = [];
+
+  if (isDynamoDB) {
+    subscribers = await dynamoAdapter.getAllCustomersWithHistory();
+  } else {
+    subscribers = db.prepare('SELECT * FROM customers WHERE status != "Cancelled"').all();
+  }
+
+  const today = new Date();
+  let dispatchedCount = 0;
+  const dispatchedLogs = [];
+
+  for (const c of subscribers) {
+    if (!c.email) continue;
+
+    const due = new Date(c.dueDate);
+    const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+
+    // Send 3-day upcoming reminder OR overdue reminder
+    if (diffDays === 3 || diffDays <= 0) {
+      const isOverdue = diffDays <= 0;
+      const subject = isOverdue 
+        ? `⚠️ Urgent: Apple Music Subscription Overdue for ${c.name}`
+        : `🎵 Reminder: Apple Music Subscription Due in 3 Days`;
+
+      const htmlContent = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 32px 20px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1f2937;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <span style="background: #fa233b; color: white; padding: 8px 16px; border-radius: 12px; font-weight: bold; font-size: 16px;">
+              🎵 Apple Music PayTrack
+            </span>
+            <h2 style="color: white; margin-top: 16px; font-size: 20px;">Hi ${c.name},</h2>
+            <p style="color: #9ca3af; font-size: 13px;">
+              ${isOverdue 
+                ? `Your Apple Music <strong>${c.plan}</strong> subscription payment was due on <strong>${c.dueDate}</strong>.`
+                : `Your Apple Music <strong>${c.plan}</strong> subscription is due for renewal on <strong>${c.dueDate}</strong>.`}
+            </p>
+          </div>
+
+          <div style="background: #11121a; border: 1px solid #374151; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+              <span style="color: #9ca3af;">Subscription Plan:</span>
+              <strong style="color: #fa233b;">${c.plan}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+              <span style="color: #9ca3af;">Set Monthly Fee:</span>
+              <strong style="color: #ffffff;">₵${c.amount.toFixed(2)} / mo</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 13px;">
+              <span style="color: #9ca3af;">Payment Method:</span>
+              <strong style="color: #10b981;">Mobile Money (${c.phone})</strong>
+            </div>
+          </div>
+
+          <p style="color: #d1d5db; font-size: 12px; line-height: 1.5; text-align: center;">
+            Please send Mobile Money payment to <strong>${c.phone}</strong> to keep your Apple Music features active.
+          </p>
+        </div>
+      `;
+
+      try {
+        await resend.emails.send({
+          from: 'Apple Music PayTrack <onboarding@resend.dev>',
+          to: [c.email],
+          subject,
+          html: htmlContent
+        });
+
+        dispatchedCount++;
+        dispatchedLogs.push({ customer: c.name, email: c.email, type: isOverdue ? 'Overdue' : 'Reminder 3D' });
+
+        // Log transaction history
+        if (isDynamoDB) {
+          await dynamoAdapter.logEmailInDynamo(c.id, subject, 'Automated scheduled email dispatched');
+        } else {
+          db.prepare(`
+            INSERT INTO payment_history (id, customerId, date, amount, status)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(`hist-${Date.now()}`, c.id, new Date().toISOString().split('T')[0], c.amount, 'Auto Email Sent');
+        }
+      } catch (err) {
+        console.error(`[Cron Email Error] Failed sending email to ${c.name}:`, err);
+      }
+    }
+  }
+
+  return { success: true, dispatchedCount, logs: dispatchedLogs };
+}
 
 // ----------------------------------------------------
 // REST API ENDPOINTS
@@ -125,14 +220,12 @@ app.post('/api/auth/request-reset-otp', async (req, res) => {
     return res.status(403).json({ error: 'Email address is not recognized as an authorized admin.' });
   }
 
-  // Generate secure 6-digit random verification OTP
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const expiresAt = Date.now() + 10 * 60 * 1000;
 
   otpStore.set(cleanEmail, { code: otpCode, expiresAt });
 
   try {
-    // Send Real Email via Resend API
     await resend.emails.send({
       from: 'Apple Music PayTrack <onboarding@resend.dev>',
       to: [cleanEmail],
@@ -229,7 +322,17 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// 5. Get All Subscribers + History
+// 5. Trigger Automated Email Reminders Manually
+app.post('/api/cron/trigger-reminders', async (req, res) => {
+  try {
+    const result = await runAutomatedEmailCron();
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Get All Subscribers + History
 app.get('/api/customers', async (req, res) => {
   if (isDynamoDB) {
     try {
@@ -246,7 +349,7 @@ app.get('/api/customers', async (req, res) => {
   }
 });
 
-// 6. Register Subscriber
+// 7. Register Subscriber
 app.post('/api/customers', async (req, res) => {
   const { name, phone, email, plan, amount, dueDate, paymentMethod, notes } = req.body;
   if (!name || !phone) {
@@ -279,7 +382,7 @@ app.post('/api/customers', async (req, res) => {
   }
 });
 
-// 7. Update Subscriber
+// 8. Update Subscriber
 app.put('/api/customers/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -317,7 +420,7 @@ app.put('/api/customers/:id', async (req, res) => {
   }
 });
 
-// 8. Delete Subscriber
+// 9. Delete Subscriber
 app.delete('/api/customers/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -337,7 +440,7 @@ app.delete('/api/customers/:id', async (req, res) => {
   }
 });
 
-// 9. Mark Paid
+// 10. Mark Paid
 app.post('/api/customers/:id/mark-paid', async (req, res) => {
   const { id } = req.params;
 
@@ -372,7 +475,7 @@ app.post('/api/customers/:id/mark-paid', async (req, res) => {
   }
 });
 
-// 10. Send Email to Subscriber
+// 11. Send Email to Subscriber
 app.post('/api/customers/:id/send-email', async (req, res) => {
   const { id } = req.params;
   const { subject, message } = req.body;

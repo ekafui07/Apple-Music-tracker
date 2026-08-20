@@ -8,7 +8,7 @@ provider:
   stage: ${opt:stage, 'prod'}
   region: ${opt:region, 'us-east-1'}
   memorySize: 512
-  timeout: 10
+  timeout: 15
   environment:
     NODE_ENV: production
     USE_DYNAMODB: 'true'
@@ -44,6 +44,13 @@ functions:
           path: /{proxy+}
           method: ANY
           cors: true
+
+  cronEmailScheduler:
+    handler: lambda.cronScheduler
+    events:
+      - schedule:
+          rate: rate(1 day)
+          enabled: true
 
 resources:
   Resources:
