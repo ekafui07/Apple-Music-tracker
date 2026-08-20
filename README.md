@@ -31,7 +31,7 @@
 - **Transaction Audit Log**: Filterable ledger table tracking historical payment receipts, new registrations, and email notice dispatches.
 
 ### 🔒 Password-Resettable Admin Protection
-- Single-admin portal secured with authorized admin emails (`edwingligah124@gmail.com` and `gligahedwin@icloud.com`).
+- Single-admin portal secured with authorized admin emails.
 - Integrated **Password Reset Modal** allowing admins to verify their account and update credentials persistently.
 
 ---
