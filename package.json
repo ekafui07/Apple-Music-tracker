@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.520.0",
+    "@aws-sdk/client-ses": "^3.520.0",
     "@aws-sdk/lib-dynamodb": "^3.520.0",
     "@vendia/serverless-express": "^4.12.6",
     "better-sqlite3": "^11.1.2",

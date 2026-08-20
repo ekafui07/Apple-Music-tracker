@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { Resend } from 'resend';
 
 import * as dynamoAdapter from './src/api/dbServerless.js';
+import { sendEmailViaSes } from './src/api/awsSesHelper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +15,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const isDynamoDB = process.env.USE_DYNAMODB === 'true';
 
-// Resend Email Client
+// Resend Email Client Backup
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const resend = new Resend(RESEND_API_KEY);
 
@@ -23,6 +24,32 @@ app.use(express.json());
 
 // In-Memory OTP Store (Email -> { code, expiresAt })
 const otpStore = new Map();
+
+// Helper to dispatch email via Amazon SES (Native AWS) with fallback to Resend API
+async function dispatchEmail({ to, subject, htmlBody }) {
+  if (process.env.USE_AWS_SES === 'true') {
+    try {
+      console.log(`[Amazon SES] Attempting to send native AWS email to ${to}...`);
+      await sendEmailViaSes({ to, subject, htmlBody });
+      return { success: true, provider: 'Amazon SES' };
+    } catch (sesErr) {
+      console.warn('[Amazon SES Warning] Falling back to Resend API:', sesErr.message);
+    }
+  }
+
+  // Fallback / Resend API
+  if (RESEND_API_KEY) {
+    await resend.emails.send({
+      from: 'Apple Music PayTrack <onboarding@resend.dev>',
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html: htmlBody
+    });
+    return { success: true, provider: 'Resend API' };
+  }
+
+  throw new Error('No active email provider available (Amazon SES or Resend).');
+}
 
 // SQLite Database Setup for Local Dev
 let db = null;
@@ -100,14 +127,13 @@ export async function runAutomatedEmailCron() {
     const due = new Date(c.dueDate);
     const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
 
-    // Send 3-day upcoming reminder OR overdue reminder
     if (diffDays === 3 || diffDays <= 0) {
       const isOverdue = diffDays <= 0;
       const subject = isOverdue 
         ? `⚠️ Urgent: Apple Music Subscription Overdue for ${c.name}`
         : `🎵 Reminder: Apple Music Subscription Due in 3 Days`;
 
-      const htmlContent = `
+      const htmlBody = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 32px 20px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1f2937;">
           <div style="text-align: center; margin-bottom: 20px;">
             <span style="background: #fa233b; color: white; padding: 8px 16px; border-radius: 12px; font-weight: bold; font-size: 16px;">
@@ -143,17 +169,10 @@ export async function runAutomatedEmailCron() {
       `;
 
       try {
-        await resend.emails.send({
-          from: 'Apple Music PayTrack <onboarding@resend.dev>',
-          to: [c.email],
-          subject,
-          html: htmlContent
-        });
-
+        await dispatchEmail({ to: c.email, subject, htmlBody });
         dispatchedCount++;
         dispatchedLogs.push({ customer: c.name, email: c.email, type: isOverdue ? 'Overdue' : 'Reminder 3D' });
 
-        // Log transaction history
         if (isDynamoDB) {
           await dynamoAdapter.logEmailInDynamo(c.id, subject, 'Automated scheduled email dispatched');
         } else {
@@ -225,39 +244,40 @@ app.post('/api/auth/request-reset-otp', async (req, res) => {
 
   otpStore.set(cleanEmail, { code: otpCode, expiresAt });
 
-  try {
-    await resend.emails.send({
-      from: 'Apple Music PayTrack <onboarding@resend.dev>',
-      to: [cleanEmail],
-      subject: '🔐 Apple Music PayTrack - Your 6-Digit Verification Code',
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 40px 20px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1f2937;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="display: inline-block; background: #fa233b; padding: 12px 18px; border-radius: 14px; color: #ffffff; font-weight: bold; font-size: 20px;">
-              🎵 PayTrack Pro
-            </div>
-            <h2 style="color: #ffffff; font-size: 22px; margin-top: 16px; font-weight: 800;">Verification Code</h2>
-            <p style="color: #9ca3af; font-size: 13px;">Use the 6-digit security code below to reset your admin portal password.</p>
-          </div>
-
-          <div style="background-color: #11121a; border: 1px solid #374151; border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 24px;">
-            <span style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #fa233b; font-mono: monospace;">
-              ${otpCode}
-            </span>
-            <p style="color: #6b7280; font-size: 11px; margin-top: 8px;">Code expires in 10 minutes.</p>
-          </div>
-
-          <p style="color: #6b7280; font-size: 11px; text-align: center;">
-            If you did not request a password reset, please ignore this email.
-          </p>
+  const htmlBody = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0c10; color: #ffffff; padding: 40px 20px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1f2937;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-block; background: #fa233b; padding: 12px 18px; border-radius: 14px; color: #ffffff; font-weight: bold; font-size: 20px;">
+          🎵 PayTrack Pro
         </div>
-      `
+        <h2 style="color: #ffffff; font-size: 22px; margin-top: 16px; font-weight: 800;">Verification Code</h2>
+        <p style="color: #9ca3af; font-size: 13px;">Use the 6-digit security code below to reset your admin portal password.</p>
+      </div>
+
+      <div style="background-color: #11121a; border: 1px solid #374151; border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 24px;">
+        <span style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #fa233b; font-mono: monospace;">
+          ${otpCode}
+        </span>
+        <p style="color: #6b7280; font-size: 11px; margin-top: 8px;">Code expires in 10 minutes.</p>
+      </div>
+
+      <p style="color: #6b7280; font-size: 11px; text-align: center;">
+        If you did not request a password reset, please ignore this email.
+      </p>
+    </div>
+  `;
+
+  try {
+    await dispatchEmail({
+      to: cleanEmail,
+      subject: '🔐 Apple Music PayTrack - Your 6-Digit Verification Code',
+      htmlBody
     });
 
-    console.log(`[Resend Email] Dispatched 6-digit OTP code to ${cleanEmail}`);
+    console.log(`[Email Dispatch] Sent 6-digit OTP code to ${cleanEmail}`);
     return res.json({ success: true, message: `Verification code sent to ${cleanEmail}` });
   } catch (err) {
-    console.error('[Resend Error]', err);
+    console.error('[Email Dispatch Error]', err);
     return res.status(500).json({ error: 'Failed to send verification email. Please try again.' });
   }
 });
@@ -490,13 +510,9 @@ app.post('/api/customers/:id/send-email', async (req, res) => {
   if (!customer) return res.status(404).json({ error: 'Subscriber not found.' });
 
   try {
+    const htmlBody = `<div style="font-family: sans-serif; padding: 20px;">${message.replace(/\n/g, '<br/>')}</div>`;
     if (customer.email) {
-      await resend.emails.send({
-        from: 'Apple Music PayTrack <onboarding@resend.dev>',
-        to: [customer.email],
-        subject: subject || 'Apple Music Subscription Update',
-        html: `<div style="font-family: sans-serif; padding: 20px;">${message.replace(/\n/g, '<br/>')}</div>`
-      });
+      await dispatchEmail({ to: customer.email, subject: subject || 'Apple Music Subscription Update', htmlBody });
     }
 
     if (isDynamoDB) {

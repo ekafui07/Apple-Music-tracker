@@ -12,6 +12,7 @@ provider:
   environment:
     NODE_ENV: production
     USE_DYNAMODB: 'true'
+    USE_AWS_SES: 'true'
     RESEND_API_KEY: ${env:RESEND_API_KEY}
     DYNAMODB_CUSTOMERS_TABLE: ${self:service}-customers-${self:provider.stage}
     DYNAMODB_ADMINS_TABLE: ${self:service}-admins-${self:provider.stage}
@@ -31,6 +32,11 @@ provider:
             - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_CUSTOMERS_TABLE}"
             - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_ADMINS_TABLE}"
             - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_HISTORY_TABLE}"
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
 
 functions:
   api:
