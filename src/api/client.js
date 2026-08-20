@@ -1,7 +1,9 @@
 // Front-end REST API Client for Apple Music PayTrack Backend Server
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export async function loginAdmin(email, password) {
-  const res = await fetch('/api/auth/login', {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
@@ -15,7 +17,7 @@ export async function loginAdmin(email, password) {
 }
 
 export async function resetAdminPassword(email, newPassword) {
-  const res = await fetch('/api/auth/reset-password', {
+  const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, newPassword })
@@ -29,7 +31,7 @@ export async function resetAdminPassword(email, newPassword) {
 }
 
 export async function fetchCustomers() {
-  const res = await fetch('/api/customers');
+  const res = await fetch(`${API_BASE}/api/customers`);
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error || 'Failed to fetch subscribers');
@@ -38,7 +40,7 @@ export async function fetchCustomers() {
 }
 
 export async function createCustomer(customerData) {
-  const res = await fetch('/api/customers', {
+  const res = await fetch(`${API_BASE}/api/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(customerData)
@@ -52,7 +54,7 @@ export async function createCustomer(customerData) {
 }
 
 export async function updateCustomer(id, updatedData) {
-  const res = await fetch(`/api/customers/${id}`, {
+  const res = await fetch(`${API_BASE}/api/customers/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updatedData)
@@ -66,7 +68,7 @@ export async function updateCustomer(id, updatedData) {
 }
 
 export async function deleteCustomer(id) {
-  const res = await fetch(`/api/customers/${id}`, {
+  const res = await fetch(`${API_BASE}/api/customers/${id}`, {
     method: 'DELETE'
   });
 
@@ -78,7 +80,7 @@ export async function deleteCustomer(id) {
 }
 
 export async function markCustomerPaid(id) {
-  const res = await fetch(`/api/customers/${id}/mark-paid`, {
+  const res = await fetch(`${API_BASE}/api/customers/${id}/mark-paid`, {
     method: 'POST'
   });
 
@@ -90,7 +92,7 @@ export async function markCustomerPaid(id) {
 }
 
 export async function sendCustomerEmail(id, subject, message) {
-  const res = await fetch(`/api/customers/${id}/send-email`, {
+  const res = await fetch(`${API_BASE}/api/customers/${id}/send-email`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subject, message })
