@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isDynamoDB = process.env.USE_DYNAMODB === 'true';
+const isDynamoDB = process.env.USE_DYNAMODB !== 'false';
 
 // Resend Email Client Backup
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
@@ -38,7 +38,6 @@ const otpStore = new Map();
 
 // Helper to dispatch email via Amazon SES (Native AWS) with fallback to Resend API
 async function dispatchEmail({ to, subject, htmlBody }) {
-  // 1. Try Amazon SES first
   if (process.env.USE_AWS_SES === 'true') {
     try {
       console.log(`[Amazon SES] Sending email to ${to}...`);
@@ -49,7 +48,6 @@ async function dispatchEmail({ to, subject, htmlBody }) {
     }
   }
 
-  // 2. Fallback to Resend API
   if (RESEND_API_KEY) {
     const resendResult = await resend.emails.send({
       from: 'Apple Music PayTrack <onboarding@resend.dev>',
@@ -116,7 +114,7 @@ if (!isDynamoDB) {
     });
   }
 } else {
-  console.log('[AWS DynamoDB] Running in Serverless Mode with Amazon DynamoDB database.');
+  console.log('[AWS DynamoDB] Connected directly to Amazon DynamoDB Cloud Database.');
 }
 
 const AUTHORIZED_EMAILS = ['edwingligah124@gmail.com', 'gligahedwin@icloud.com'];
