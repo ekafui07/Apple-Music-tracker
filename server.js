@@ -19,6 +19,17 @@ const isDynamoDB = process.env.USE_DYNAMODB === 'true';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const resend = new Resend(RESEND_API_KEY);
 
+// Enable Full CORS Header Support for API Gateway Preflight and Error Responses
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 
@@ -27,28 +38,34 @@ const otpStore = new Map();
 
 // Helper to dispatch email via Amazon SES (Native AWS) with fallback to Resend API
 async function dispatchEmail({ to, subject, htmlBody }) {
+  // 1. Try Amazon SES first
   if (process.env.USE_AWS_SES === 'true') {
     try {
-      console.log(`[Amazon SES] Attempting to send native AWS email to ${to}...`);
+      console.log(`[Amazon SES] Sending email to ${to}...`);
       await sendEmailViaSes({ to, subject, htmlBody });
       return { success: true, provider: 'Amazon SES' };
     } catch (sesErr) {
-      console.warn('[Amazon SES Warning] Falling back to Resend API:', sesErr.message);
+      console.warn('[Amazon SES Warning - Falling back to Resend API]:', sesErr.message);
     }
   }
 
-  // Fallback / Resend API
+  // 2. Fallback to Resend API
   if (RESEND_API_KEY) {
-    await resend.emails.send({
+    const resendResult = await resend.emails.send({
       from: 'Apple Music PayTrack <onboarding@resend.dev>',
       to: Array.isArray(to) ? to : [to],
       subject,
       html: htmlBody
     });
+
+    if (resendResult.error) {
+      console.warn('[Resend API Warning]:', resendResult.error);
+      throw new Error(resendResult.error.message || 'Resend Email Dispatch Failed.');
+    }
     return { success: true, provider: 'Resend API' };
   }
 
-  throw new Error('No active email provider available (Amazon SES or Resend).');
+  throw new Error('No active email service provider available.');
 }
 
 // SQLite Database Setup for Local Dev
@@ -278,7 +295,7 @@ app.post('/api/auth/request-reset-otp', async (req, res) => {
     return res.json({ success: true, message: `Verification code sent to ${cleanEmail}` });
   } catch (err) {
     console.error('[Email Dispatch Error]', err);
-    return res.status(500).json({ error: 'Failed to send verification email. Please try again.' });
+    return res.status(500).json({ error: err.message || 'Failed to send verification email.' });
   }
 });
 
@@ -511,9 +528,13 @@ app.post('/api/customers/:id/send-email', async (req, res) => {
 
   try {
     const htmlBody = `<div style="font-family: sans-serif; padding: 20px;">${message.replace(/\n/g, '<br/>')}</div>`;
-    if (customer.email) {
-      await dispatchEmail({ to: customer.email, subject: subject || 'Apple Music Subscription Update', htmlBody });
-    }
+    const targetEmail = customer.email || 'edwingligah124@gmail.com';
+    
+    const result = await dispatchEmail({ 
+      to: targetEmail, 
+      subject: subject || 'Apple Music Subscription Update', 
+      htmlBody 
+    });
 
     if (isDynamoDB) {
       await dynamoAdapter.logEmailInDynamo(id, subject, message);
@@ -525,9 +546,13 @@ app.post('/api/customers/:id/send-email', async (req, res) => {
       `).run(`hist-${Date.now()}`, id, today, customer.amount, 'Email Sent');
     }
 
-    return res.json({ success: true, message: `Email sent to ${customer.name}` });
+    return res.json({ 
+      success: true, 
+      message: `Email dispatched to ${customer.name} via ${result.provider}` 
+    });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('[Send Email Error]', err);
+    return res.status(500).json({ error: err.message || 'Failed to dispatch email.' });
   }
 });
 
