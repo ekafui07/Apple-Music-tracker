@@ -21,7 +21,7 @@ import {
   sendCustomerEmail 
 } from './api/client';
 
-import { CheckCircle2, Music, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Music } from 'lucide-react';
 
 export default function App() {
   // Auth state
@@ -30,7 +30,7 @@ export default function App() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  // Subscriber state loaded from Express + SQLite API
+  // Subscriber state loaded from API
   const [customers, setCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
 
@@ -134,7 +134,7 @@ export default function App() {
     try {
       await sendCustomerEmail(customerId, subject, body);
       await loadCustomersFromAPI(); // Refresh history
-      showToast(`Email dispatched to ${target.name} (${target.email})!`);
+      showToast(`Email dispatched to ${target.name}!`);
     } catch (err) {
       showToast(err.message || 'Failed to send email notice');
     }
@@ -212,7 +212,7 @@ export default function App() {
         {loadingCustomers ? (
           <div className="text-center py-24 space-y-3">
             <Music className="w-10 h-10 text-rose-500 animate-spin mx-auto" />
-            <p className="text-xs text-gray-400 font-semibold">Connecting to SQLite Database...</p>
+            <p className="text-xs text-gray-400 font-semibold">Connecting to Amazon DynamoDB Cloud Database...</p>
           </div>
         ) : (
           <>
@@ -286,7 +286,7 @@ export default function App() {
             <Music className="w-4 h-4 text-rose-500" />
             <span className="font-bold text-gray-300">Apple Music PayTrack Manager</span>
           </div>
-          <p>© 2026 Apple Music Customer Payment Tracker (Express & SQLite Powered)</p>
+          <p>© 2026 Apple Music Customer Payment Tracker (Express & Amazon DynamoDB Powered)</p>
         </div>
       </footer>
 
