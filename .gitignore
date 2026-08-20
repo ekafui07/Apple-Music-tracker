@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+dist-ssr/
+
+# Local databases & serverless artifacts
+database.sqlite
+.serverless/
+.build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# OS metadata
+.DS_Store
+Thumbs.db
